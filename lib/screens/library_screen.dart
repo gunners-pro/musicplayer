@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:audioplayers/audioplayers.dart';
+import 'package:external_path/external_path.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_advanced_drawer/flutter_advanced_drawer.dart';
 import 'package:musicplayer/widgets/drawer.dart';
@@ -14,46 +16,34 @@ class LibraryScreen extends StatefulWidget {
 
 class _LibraryScreenState extends State<LibraryScreen> {
   final _drawerController = AdvancedDrawerController();
-
-  Future<bool> checkAndRequestStoragePermission() async {
-    var status = await Permission.audio.status;
-
-    if (status.isDenied || status.isPermanentlyDenied) {
-      status = await Permission.audio.request();
-    }
-
-    return status.isGranted;
-  }
+  final player = AudioPlayer();
+  List<FileSystemEntity> audioFiles = [];
+  bool isLoading = false;
 
   Future<void> listAudioFile() async {
-    if (await checkAndRequestStoragePermission()) {
-      Directory directory = Directory('/storage/emulated/0');
+    if (await Permission.storage.request().isGranted) {
+      try {
+        String storagePath =
+            await ExternalPath.getExternalStoragePublicDirectory(
+                ExternalPath.DIRECTORY_MUSIC);
 
-      if (await directory.exists()) {
-        List<FileSystemEntity> files = directory.listSync(recursive: true);
-        List<String> audiofiles = files
-            .where((file) =>
-                file is File &&
-                ['.mp3'].contains(file.path.split('.').last.toLowerCase()))
-            .map((file) => file.path)
-            .toList();
+        if (storagePath.isNotEmpty) {
+          List<FileSystemEntity> files = Directory(storagePath)
+              .listSync(recursive: true)
+              .where((file) => file is File && file.path.endsWith('.mp3'))
+              .toList();
 
-        debugPrint("files: $files");
-        debugPrint("directory: $directory");
-        debugPrint("Arquivos: $audiofiles");
-      } else {
-        debugPrint("Diretório nao encontrado.");
+          setState(() {
+            audioFiles = files;
+            isLoading = false;
+          });
+        }
+      } catch (e) {
+        //print('Erro ao listar arquivos: $e');
       }
     } else {
-      debugPrint("Permissão negada para acessar o armazenamento.");
+      //print('Permissão de armazenamento negada.');
     }
-  }
-
-  @override
-  void initState() {
-    super.initState();
-
-    listAudioFile();
   }
 
   @override
@@ -73,16 +63,42 @@ class _LibraryScreenState extends State<LibraryScreen> {
         body: Container(
           padding: const EdgeInsets.only(top: 24),
           width: width,
-          child: const Column(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                "Biblioteca",
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 28,
-                ),
-                textAlign: TextAlign.center,
-              )
+              ElevatedButton(
+                onPressed: () async {
+                  setState(() {
+                    isLoading = true;
+                  });
+                  await listAudioFile();
+                },
+                child: const Text("Listar Músicas"),
+              ),
+              isLoading
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                        color: Colors.red,
+                      ),
+                    )
+                  : Expanded(
+                      child: ListView.builder(
+                        itemBuilder: (context, index) {
+                          return GestureDetector(
+                            onTap: () async {
+                              await player.play(
+                                  UrlSource(audioFiles[index].uri.toString()));
+                            },
+                            child: ListTile(
+                              title:
+                                  Text(audioFiles[index].path.split('/').last),
+                              subtitle: Text(audioFiles[index].uri.toString()),
+                            ),
+                          );
+                        },
+                        itemCount: audioFiles.length,
+                      ),
+                    )
             ],
           ),
         ),
